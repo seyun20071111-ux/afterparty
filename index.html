@@ -130,6 +130,20 @@ textarea.in{min-height:84px;resize:vertical}
 .demo .btns{flex-wrap:wrap}
 .demo .btn{flex:1 1 30%}
 
+/* terms */
+.doc{font-size:13.5px;line-height:1.65;color:#2c2440}
+.doc h4{font-size:14px;margin:16px 0 4px}
+.doc p{margin:4px 0}
+.doc ul{margin:4px 0;padding-left:18px}
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0}
+.tbl th,.tbl td{border:1px solid var(--line);padding:6px;vertical-align:top;text-align:left}
+.tbl th{background:var(--bg)}
+.consent{border:1px solid var(--line);border-radius:14px;background:#fff;padding:6px 12px;margin-top:8px}
+.consent .row{min-height:40px}
+.consent label{display:flex;align-items:center;gap:8px;flex:1;cursor:pointer}
+input[type=checkbox]{width:18px;height:18px;accent-color:var(--p);flex:none}
+select.in{appearance:none;-webkit-appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%237A7290' stroke-width='1.6'/%3E%3C/svg%3E") no-repeat right 14px center}
+
 /* sheet & toast */
 .sheet-bg{position:fixed;inset:0;background:rgba(20,10,40,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center;animation:fade .15s}
 .sheet{background:#fff;width:100%;max-width:480px;border-radius:22px 22px 0 0;padding:10px 20px calc(20px + env(safe-area-inset-bottom));max-height:90vh;overflow:auto;animation:up .2s ease-out}
@@ -162,6 +176,9 @@ const CONFIG = {
   SUPABASE_URL: 'https://yjcinjpernyqyuoxlutk.supabase.co',
   SUPABASE_ANON_KEY: 'sb_publishable_GL_xV42Or9Un8eYwrbs3EQ_xuWDFryt',   // Publishable key (공개용)
   CONTACT_KAKAO: '',       // 운영진 문의 링크(선택), 예: 오픈채팅 주소
+  OPERATOR: '애프터파티 운영팀',   // 약관에 표시되는 운영 주체
+  PRIVACY_OFFICER: '임세윤',     // 개인정보 보호책임자 이름
+  CONTACT_EMAIL: 'seyun20071111@gmail.com',       // 문의·개인정보 요청을 받을 이메일
 };
 const DEMO = !CONFIG.SUPABASE_URL || !CONFIG.SUPABASE_ANON_KEY;
 
@@ -188,6 +205,132 @@ const LOCK_DAYS = 3; // 인원 확정 기준일: 행사 3일 전
 const TAGS = ['룸','단체석','무제한','주류 할인','안주 서비스','늦게까지'];
 
 /* =========================================================
+   입력 양식 (전화번호 · 이메일 · 계좌) — 자동 서식 + 검사
+   ========================================================= */
+const RE = {
+  mobile: /^01[016789]-\d{3,4}-\d{4}$/,
+  phone: /^(01[016789]|02|0[3-6][1-5]|070)-\d{3,4}-\d{4}$/,
+  email: /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/,
+  account: /^\d+(-\d+)*$/,
+};
+function need(ok, msg){ if(!ok) throw new Error(msg); }
+const vMobile = v => need(RE.mobile.test(v || ''), '휴대폰 번호를 010-0000-0000 형식으로 입력해 주세요');
+const vPhone = v => need(RE.phone.test(v || ''), '전화번호를 02-000-0000 또는 010-0000-0000 형식으로 입력해 주세요');
+const vEmail = v => need(RE.email.test(v || ''), '이메일 주소 형식을 확인해 주세요 (예: you@korea.ac.kr)');
+const vText = (v, msg, min = 2, max = 20) => need((v || '').trim().length >= min && (v || '').trim().length <= max, msg);
+function vAccount(v){
+  need(RE.account.test(v || ''), '계좌번호는 숫자와 - 만 입력해 주세요');
+  const n = v.replace(/-/g, '').length;
+  need(n >= 10 && n <= 16, '계좌번호 자릿수를 확인해 주세요 (숫자 10~16자리)');
+}
+function fmtPhone(v){
+  let d = v.replace(/\D/g, '');
+  if(d.startsWith('02')){
+    d = d.slice(0, 10);
+    if(d.length < 3) return d;
+    if(d.length <= 5) return d.slice(0, 2) + '-' + d.slice(2);
+    const mid = d.length === 10 ? 4 : 3;
+    return d.slice(0, 2) + '-' + d.slice(2, 2 + mid) + '-' + d.slice(2 + mid);
+  }
+  d = d.slice(0, 11);
+  if(d.length < 4) return d;
+  if(d.length <= 7) return d.slice(0, 3) + '-' + d.slice(3);
+  const mid = d.length === 11 ? 4 : 3;
+  return d.slice(0, 3) + '-' + d.slice(3, 3 + mid) + '-' + d.slice(3 + mid);
+}
+const fmtAccount = v => v.replace(/[^\d-]/g, '').replace(/-{2,}/g, '-').replace(/^-/, '').slice(0, 20);
+const BANKS = ['KB국민','신한','우리','하나','NH농협','IBK기업','카카오뱅크','토스뱅크','케이뱅크','SC제일','iM뱅크','부산','경남','광주','전북','제주','새마을금고','신협','우체국','수협','씨티'];
+function parseAccount(s){
+  const m = /^(.+?) ([\d-]+) \((.+)\)$/.exec(s || '');
+  return m ? { bank:m[1], no:m[2], holder:m[3] } : { bank:'', no:'', holder:'' };
+}
+const phoneInput = (name, value = '', mobileOnly = true, extra = '') =>
+  `<input class="in" name="${name}" type="tel" inputmode="numeric" data-fmt="phone" maxlength="13" autocomplete="tel" value="${esc(value)}" placeholder="${mobileOnly ? '010-0000-0000' : '02-000-0000 또는 010-0000-0000'}" ${extra}>`;
+const emailInput = (extra = '') =>
+  `<input class="in" name="email" type="email" inputmode="email" data-fmt="email" autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="email" maxlength="80" required placeholder="you@korea.ac.kr" ${extra}>`;
+const cleanEmail = v => String(v || '').trim().toLowerCase();
+
+/* =========================================================
+   약관 (초안 — 시범 운영 전 창업지원단 등 전문가 검토 권장)
+   ========================================================= */
+const TERMS_VERSION = '2026-11-17';
+const OFFICER = () => esc(CONFIG.PRIVACY_OFFICER || '애프터파티 운영 대표');
+const CONTACT = () => CONFIG.CONTACT_EMAIL ? esc(CONFIG.CONTACT_EMAIL) : '앱 내 운영진 문의 채널';
+const TERMS = {
+  service: { title: '애프터파티 이용약관', html: () => `
+    <h4>제1조 (목적)</h4><p>이 약관은 ${esc(CONFIG.OPERATOR)}(이하 "운영자")가 제공하는 대학 단체 모임 장소 중개 서비스 "애프터파티"(이하 "서비스")의 이용 조건과 절차, 운영자와 회원의 권리·의무를 정합니다.</p>
+    <h4>제2조 (용어)</h4><ul>
+      <li><b>학생회원</b>: 과·동아리 등 학생 단체를 대표해 예약하는 회원</li>
+      <li><b>사장님회원</b>: 운영진 확인을 거쳐 승인된 음식점·주점 운영자</li>
+      <li><b>오퍼</b>: 사장님회원이 게시하는 날짜·인원·가격·최소 주문 금액 등의 예약 조건</li>
+      <li><b>역제안</b>: 학생회원이 날짜·인원·예산을 올려 가게의 제안을 받는 기능</li>
+      <li><b>예약금</b>: 예약 확정을 위해 학생회원이 가게 계좌로 직접 입금하는 금액</li></ul>
+    <h4>제3조 (서비스의 성격)</h4><p>① 운영자는 학생 단체와 가게를 연결하는 <b>통신판매중개자</b>이며, 예약 거래의 당사자가 아닙니다. 음식·주류의 제공, 가격, 품질, 위생에 대한 책임은 해당 가게에 있습니다.</p><p>② 서비스는 고려대학교 안암캠퍼스 인근에서 시범 운영되는 <b>베타 서비스</b>로, 기능이 변경되거나 중단될 수 있습니다. 중요한 변경은 사전에 공지합니다.</p>
+    <h4>제4조 (회원가입)</h4><p>① <b>만 19세 이상</b>만 가입할 수 있습니다.</p><p>② 사장님회원은 운영진이 등록된 전화번호로 본인과 가게를 확인한 뒤 승인되며, 승인 전에는 오퍼 게시 등 일부 기능이 제한됩니다.</p><p>③ 타인의 정보를 도용하거나 허위 정보로 가입한 경우 이용이 제한될 수 있습니다.</p>
+    <h4>제5조 (예약과 예약금)</h4><p>① 예약은 학생회원의 지원 → 사장님회원의 수락 → 학생회원의 예약금 입금 → 사장님회원의 입금 확인 순서로 확정됩니다.</p><p>② 예약금은 학생회원이 <b>가게 계좌로 직접 입금</b>하며, 운영자는 예약금을 받거나 보관하지 않습니다.</p><p>③ 예약금은 행사 당일 최종 결제 금액에서 차감됩니다.</p>
+    <h4>제6조 (인원 확정·취소·환불)</h4><p>① 인원은 <b>행사 ${LOCK_DAYS}일 전</b>에 확정되며, 이후 인원이 줄어도 예약금은 그대로 적용됩니다.</p>
+      <p>② 학생회원 사정으로 취소하는 경우 아래 기준으로 예약금을 돌려받습니다.</p>
+      <table class="rf">${REFUND.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table>
+      <p>③ 가게 사정으로 예약이 취소되면 예약금 전액을 돌려받습니다.</p><p>④ 환불은 예약금을 받은 가게가 직접 처리하며, 운영자는 원활한 처리를 위해 예약 기록 제공 등 필요한 협조를 합니다.</p>
+    <h4>제7조 (학생회원의 의무)</h4><ul><li>지원서의 인원·날짜·연락처를 정확하게 입력합니다.</li><li>만 19세 미만인 사람을 행사에 동반하지 않으며, 가게의 신분증 확인에 협조합니다.</li><li>예약을 지키지 못할 경우 가능한 한 빨리 앱에서 취소합니다.</li></ul>
+    <h4>제8조 (사장님회원의 의무)</h4><ul><li>게시한 오퍼와 수락한 조건을 지킵니다.</li><li>청소년 주류 판매 금지 등 관련 법령을 지키며, 과음을 부추기는 표현을 쓰지 않습니다.</li><li>예약금 계좌와 가게 정보를 정확하게 유지합니다.</li><li>이용자의 연락처 등 개인정보를 예약 목적 외로 사용하지 않습니다.</li></ul>
+    <h4>제9조 (금지 행위와 이용 제한)</h4><p>허위 지원·오퍼, 반복적인 노쇼, 타인 비방·허위 후기, 서비스 운영 방해 등이 확인되면 운영자는 경고, 일시 정지, 승인 취소 등 이용을 제한할 수 있습니다.</p>
+    <h4>제10조 (수수료)</h4><p>학생회원은 수수료가 없습니다. 사장님회원의 수수료는 시범 운영 기간 중 별도 합의로 정하며, 부과 전에 미리 알립니다.</p>
+    <h4>제11조 (책임의 한계)</h4><p>① 예약 이행, 환불, 가게 이용 중 발생한 분쟁은 당사자 간 해결을 원칙으로 하며, 운영자는 기록 확인 등 분쟁 해결에 협조합니다.</p><p>② 운영자는 천재지변, 서버 장애 등 불가항력으로 인한 서비스 중단에 대해 책임을 지지 않습니다. 단, 운영자의 고의 또는 중대한 과실로 인한 손해는 예외로 합니다.</p>
+    <h4>제12조 (약관 변경)</h4><p>약관을 변경할 경우 시행 7일 전(회원에게 불리한 변경은 30일 전)부터 앱에 공지합니다.</p>
+    <h4>부칙</h4><p>이 약관은 ${TERMS_VERSION}부터 시행합니다.</p>` },
+
+  privacy: { title: '개인정보 수집·이용 동의', html: () => `
+    <p>${esc(CONFIG.OPERATOR)}는 서비스 제공을 위해 아래와 같이 개인정보를 수집·이용합니다.</p>
+    <table class="tbl"><tr><th>구분</th><th>수집 항목</th><th>이용 목적</th></tr>
+      <tr><td>공통 (필수)</td><td>이메일, 비밀번호(암호화 저장), 이름, 휴대폰 번호</td><td>회원 식별, 로그인, 공지 및 연락</td></tr>
+      <tr><td>학생회원 (필수)</td><td>소속(과·동아리)</td><td>지원·역제안 시 단체 표시</td></tr>
+      <tr><td>사장님회원 (필수)</td><td>가게 이름·주소·전화번호·소개, 예약금 계좌(은행·계좌번호·예금주)</td><td>사장님 본인·가게 확인, 오퍼 게시, 예약금 안내</td></tr>
+      <tr><td>이용 과정</td><td>지원·예약 내역(인원, 날짜, 대표자 연락처, 요청사항), 후기, 접속 기록</td><td>예약 처리, 분쟁 대응, 부정 이용 방지, 서비스 개선 통계</td></tr></table>
+    <h4>보유 및 이용 기간</h4><p><b>회원 탈퇴 시까지</b> 보유하며, 탈퇴하면 지체 없이 파기합니다. 단, 관련 법령에 따라 보관이 필요한 정보는 해당 기간 동안 보관합니다 (예: 전자상거래법상 계약·청약철회 기록 5년, 소비자 불만·분쟁 처리 기록 3년, 통신비밀보호법상 접속 기록 3개월).</p>
+    <h4>동의를 거부할 권리</h4><p>개인정보 수집·이용에 동의하지 않을 수 있습니다. 다만 위 항목은 서비스 제공에 꼭 필요한 정보이므로, 동의하지 않으면 회원가입이 불가능합니다.</p>` },
+
+  third: { title: '개인정보 제3자 제공 동의', html: () => `
+    <p>예약을 진행하려면 예약 상대방에게 아래 정보가 제공됩니다. 운영자는 아래 경우 외에는 개인정보를 제3자에게 제공하지 않습니다.</p>
+    <table class="tbl"><tr><th>받는 자</th><th>제공 항목</th><th>목적</th><th>보유 기간</th></tr>
+      <tr><td>학생회원이 지원하거나 제안을 선택한 가게의 사장님회원</td><td>소속, 예상 인원, 행사 날짜, 대표자 연락처, 요청사항</td><td>예약 확인, 인원·일정 조율 연락</td><td>예약 목적 달성 시까지 (행사 종료 후 지체 없이 파기)</td></tr>
+      <tr><td>사장님회원이 지원을 수락하거나 조건을 제안한 학생회원</td><td>가게 이름·주소·전화번호, 예약금 계좌(은행·계좌번호·예금주)</td><td>예약금 입금, 방문 및 연락</td><td>예약 목적 달성 시까지</td></tr></table>
+    <h4>동의를 거부할 권리</h4><p>동의하지 않을 수 있으나, 이 경우 예약 기능을 이용할 수 없어 회원가입이 불가능합니다.</p>` },
+
+  policy: { title: '개인정보 처리방침', html: () => `
+    <p>${esc(CONFIG.OPERATOR)}(이하 "운영자")는 「개인정보 보호법」에 따라 이용자의 개인정보를 보호하고 관련 고충을 신속하게 처리하기 위해 다음과 같이 처리방침을 둡니다.</p>
+    <h4>1. 처리 목적</h4><p>회원 관리(가입, 본인·가게 확인, 로그인), 예약 중개(오퍼·역제안·지원·예약금 안내), 분쟁 대응과 부정 이용 방지, 공지 전달, 서비스 개선을 위한 통계 분석.</p>
+    <h4>2. 처리 항목</h4>${TERMS.privacy.html().split('<h4>')[0].replace(/^\s*<p>.*?<\/p>/, '')}
+    <h4>3. 보유 기간과 파기</h4><p>회원 탈퇴 시 지체 없이 파기합니다. 법령상 보관 의무가 있는 정보(계약·청약철회 기록 5년, 소비자 불만·분쟁 처리 기록 3년, 접속 기록 3개월)는 분리 보관 후 기간이 지나면 파기합니다. 전자 파일은 복구할 수 없는 방법으로 삭제합니다.</p>
+    <h4>4. 제3자 제공</h4><p>예약 진행을 위해 예약 상대방(가게 사장님 또는 학생 단체 대표자)에게 필요한 최소한의 정보만 제공합니다. 자세한 내용은 「개인정보 제3자 제공 동의」를 따릅니다. 법령에 근거가 있는 경우를 제외하고 그 밖의 제3자에게 제공하지 않습니다.</p>
+    <h4>5. 처리 위탁 및 국외 이전</h4>
+    <table class="tbl"><tr><th>받는 자 (국가)</th><th>업무 내용</th><th>이전 항목</th></tr>
+      <tr><td>Supabase, Inc. (미국)<br><span class="xs">데이터 저장 위치: 대한민국 서울 리전</span></td><td>회원 인증, 데이터베이스 보관</td><td>2번의 모든 항목</td></tr>
+      <tr><td>GitHub, Inc. (미국)</td><td>웹 페이지 제공(호스팅)</td><td>접속 IP 등 기술적 접속 기록</td></tr></table>
+    <p>회원가입 및 서비스 이용 시 정보통신망을 통해 이전되며, 보유 기간은 위 3번과 같습니다. 국외 이전을 원하지 않으면 회원 탈퇴로 거부할 수 있으나, 이 경우 서비스 이용이 불가능합니다.</p>
+    <h4>6. 이용자의 권리</h4><p>이용자는 언제든지 개인정보 열람·정정·삭제·처리정지와 회원 탈퇴를 요청할 수 있습니다. 이름·연락처 등은 앱의 마이(사장님은 가게) 탭에서 직접 고칠 수 있고, 탈퇴와 삭제는 아래 연락처로 요청하면 지체 없이 처리합니다.</p>
+    <h4>7. 안전성 확보 조치</h4><p>비밀번호 암호화 저장, 데이터베이스 접근 권한 제한(본인·예약 당사자만 조회), 전 구간 HTTPS 암호화 통신, 운영진 계정 최소화.</p>
+    <h4>8. 만 19세 미만</h4><p>서비스는 만 19세 이상만 가입할 수 있으며, 만 19세 미만으로 확인된 계정은 이용이 제한되고 정보는 파기됩니다.</p>
+    <h4>9. 개인정보 보호책임자</h4><p>책임자: ${OFFICER()}<br>연락처: ${CONTACT()}</p>
+    <h4>10. 권익 침해 구제</h4><p>개인정보침해신고센터 (국번 없이) 118 · 개인정보분쟁조정위원회 1833-6972 · 대검찰청 사이버수사과 (국번 없이) 1301 · 경찰청 사이버수사국 (국번 없이) 182</p>
+    <h4>11. 처리방침 변경</h4><p>이 방침은 ${TERMS_VERSION}부터 적용되며, 변경 시 시행 7일 전부터 앱에 공지합니다.</p>` },
+};
+const CONSENTS = [
+  { k:'age', label:'만 19세 이상입니다', doc:null },
+  { k:'service', label:'이용약관 동의', doc:'service' },
+  { k:'privacy', label:'개인정보 수집·이용 동의', doc:'privacy' },
+  { k:'third', label:'개인정보 제3자 제공 동의', doc:'third' },
+];
+function openTerms(k){
+  const t = TERMS[k]; if(!t) return;
+  const inSignup = !!document.querySelector('form[data-form="signup"]') && CONSENTS.some(c => c.doc === k);
+  openSheet(`<h3>${esc(t.title)}</h3><div class="doc">${t.html()}</div>
+    <div class="btns" style="position:sticky;bottom:0;background:#fff;padding-top:10px;margin-top:6px">${inSignup ? `<button class="btn" data-act="agreeTerm" data-k="${k}">동의하고 닫기</button>` : '<button class="btn sec2" data-act="closeSheet">닫기</button>'}</div>`);
+  const sh = document.querySelector('.sheet'); if(sh) sh.scrollTop = 0;
+}
+const termsLinks = () => `<div class="row" style="justify-content:center;gap:2px"><button class="link xs" data-act="terms" data-k="service">이용약관</button><span class="xs muted">·</span><button class="link xs" data-act="terms" data-k="policy">개인정보 처리방침</button></div>`;
+
+/* =========================================================
    데이터 계층: 같은 함수 이름으로 Supabase / 데모(localStorage)를 바꿔 끼움
    ========================================================= */
 const Remote = {
@@ -206,7 +349,7 @@ const Remote = {
     return new Error(m);
   },
   async signUp(email, password, meta){
-    const { data, error } = await this.sb.auth.signUp({ email, password, options:{ data: meta } });
+    const { data, error } = await this.sb.auth.signUp({ email, password, options:{ data: meta, emailRedirectTo: location.origin + location.pathname } });
     if(error) throw this.err(error);
     return { id: data.user?.id, needsConfirm: !data.session };
   },
@@ -451,14 +594,14 @@ function scrLogin(){
     <div class="hero">${logo(84)}<h1>애프터파티</h1><p>뒷풀이 장소, 전화 말고 지원으로</p></div>
     ${S.notice ? `<div class="notice green" style="margin-bottom:14px">${esc(S.notice)}</div>` : ''}
     <form data-form="login">
-      ${field('이메일', '<input class="in" name="email" type="email" autocomplete="email" required placeholder="you@korea.ac.kr">')}
+      ${field('이메일', emailInput())}
       ${field('비밀번호', '<input class="in" name="password" type="password" autocomplete="current-password" required minlength="6">')}
       <button class="btn mt8">로그인</button>
     </form>
     <div style="text-align:center" class="mt12"><span class="muted small">처음이세요?</span><button class="link" data-act="toSignup">회원가입</button></div>
     ${DEMO ? `<div class="demo"><div class="b small">데모로 둘러보기</div><div class="xs muted mt4">서버 연결 전이라 데이터는 이 브라우저에만 저장돼요. 비밀번호는 모두 demo1234</div>
       <div class="btns"><button class="btn sec2 sm" data-act="demo" data-e="student@demo.kr">학생</button><button class="btn sec2 sm" data-act="demo" data-e="owner@demo.kr">사장님</button><button class="btn sec2 sm" data-act="demo" data-e="pending@demo.kr">승인 대기</button><button class="btn sec2 sm" data-act="demo" data-e="admin@demo.kr">운영진</button></div></div>` : ''}
-    <div style="flex:1"></div><p class="xs muted" style="text-align:center;margin-top:24px">고려대 안암 베타 · 만 19세 이상만 이용할 수 있어요</p>
+    <div style="flex:1"></div><p class="xs muted" style="text-align:center;margin:24px 0 0">고려대 안암 베타 · 만 19세 이상만 이용할 수 있어요</p>${termsLinks()}
   </div>`;
 }
 function scrSignup(){
@@ -470,12 +613,17 @@ function scrSignup(){
       <button class="${o ? 'on' : ''}" data-act="role" data-r="owner"><div class="e">🏪</div><div class="t">사장님</div><div class="d">가게 운영</div></button>
     </div>
     <form data-form="signup">
-      ${field(o ? '대표자 이름' : '이름', '<input class="in" name="name" required>')}
-      ${o ? field('가게 이름', '<input class="in" name="store_name" required placeholder="예: 달빛포차 안암점">') + field('가게 주소', '<input class="in" name="store_address" required>') : field('소속 (과·동아리)', '<input class="in" name="org" required placeholder="예: 국제학부 학생회">')}
-      ${field(o ? '가게 전화번호' : '전화번호', '<input class="in" name="phone" type="tel" required placeholder="010-0000-0000">', o ? '운영진이 이 번호로 전화해 확인한 뒤 승인해요.' : '예약 대표자 연락처로 사용돼요.')}
-      ${field('이메일', '<input class="in" name="email" type="email" required autocomplete="email">')}
+      ${field(o ? '대표자 이름' : '이름', '<input class="in" name="name" required maxlength="20" autocomplete="name">')}
+      ${o ? field('가게 이름', '<input class="in" name="store_name" required maxlength="30" placeholder="예: 달빛포차 안암점">') + field('가게 주소', '<input class="in" name="store_address" required maxlength="80">') : field('소속 (과·동아리)', '<input class="in" name="org" required maxlength="30" placeholder="예: 국제학부 학생회">')}
+      ${field(o ? '가게 전화번호' : '휴대폰 번호', phoneInput('phone', '', !o, 'required'), o ? '숫자만 입력하면 - 가 자동으로 들어가요. 운영진이 이 번호로 전화해 확인한 뒤 승인해요.' : '숫자만 입력하면 - 가 자동으로 들어가요. 예약 대표자 연락처로 사용돼요.')}
+      ${field('이메일', emailInput(), '로그인 아이디로 사용돼요. 영문 소문자로 저장돼요.')}
       ${field('비밀번호', '<input class="in" name="password" type="password" required minlength="6" autocomplete="new-password">', '6자 이상')}
-      <label class="row small mt8" style="align-items:flex-start"><input type="checkbox" name="agree" required style="margin-top:4px"> <span>만 19세 이상이며, 이용 안내와 환불 규정에 동의합니다.</span></label>
+      <div class="consent">
+        <div class="row"><label class="b"><input type="checkbox" id="agreeAll"> 전체 동의</label></div>
+        <hr style="margin:4px 0">
+        ${CONSENTS.map(c => `<div class="row between"><label class="small"><input type="checkbox" class="agree" name="agree_${c.k}" id="agree_${c.k}"> <span>(필수) ${c.label}</span></label>${c.doc ? `<button type="button" class="link xs" data-act="terms" data-k="${c.doc}">자세히 보기</button>` : ''}</div>`).join('')}
+      </div>
+      <div class="mt8">${termsLinks()}</div>
       <button class="btn mt16">${o ? '사장님으로 가입하기' : '학생으로 가입하기'}</button>
     </form>
   </div>`;
@@ -507,6 +655,12 @@ async function ratingsFor(ownerIds){
 SCR.board = async () => {
   const t = today();
   let list = (await DB.select('offers', { status:'open' })).filter(o => o.end_date >= t);
+  let hidden = 0;
+  if(S.me.role === 'student'){
+    const mine = await DB.select('applications', { student_id:S.uid });
+    const applied = new Set(mine.filter(a => a.offer_id && ['pending','accepted','paid','confirmed'].includes(a.status)).map(a => a.offer_id));
+    const before = list.length; list = list.filter(o => !applied.has(o.id)); hidden = before - list.length;
+  }
   if(S.f.date) list = list.filter(o => o.start_date <= S.f.date && o.end_date >= S.f.date);
   if(S.f.tag !== 'all') list = list.filter(o => (o.tags || []).includes(S.f.tag));
   const rt = await ratingsFor(list.map(o => o.owner_id));
@@ -525,6 +679,7 @@ SCR.board = async () => {
     title: '오퍼 보드',
     body: `<div class="row" style="gap:8px;margin-bottom:10px"><input class="in" type="date" id="fdate" value="${S.f.date}" min="${t}" style="flex:1;padding:10px 12px"><button class="btn ghost sm" data-act="fdateClear">${S.f.date ? '날짜 해제' : '전체 날짜'}</button></div>
       <div class="filters">${filters}</div>
+      ${hidden ? `<div class="row between small muted" style="margin:-2px 2px 8px"><span>이미 지원한 오퍼 ${hidden}개는 숨겼어요</span><button class="link small" style="padding:0" data-act="tab" data-t="bookings">내 예약 보기</button></div>` : ''}
       ${cards || empty('🍻', '조건에 맞는 오퍼가 아직 없어요.<br>원하는 날짜·인원·예산으로 <b>역제안</b>을 올려 보세요.')}
       ${S.me.role === 'student' && list.length ? `<div class="notice mt16">원하는 날짜에 맞는 오퍼가 없나요? <b>역제안</b> 탭에서 날짜·인원·예산을 올리면 사장님들이 조건을 제안해요.</div>` : ''}`,
   };
@@ -576,7 +731,7 @@ SCR.apply = async ({ id }) => {
         ${field('소속 (과·동아리)', `<input class="in" name="org" required value="${esc(S.me.org)}">`)}
         ${field('예상 인원', `<input class="in" name="people" type="number" inputmode="numeric" required min="${o.min_people}" max="${o.max_people}" placeholder="${o.min_people}~${o.max_people}명">`)}
         ${field('희망 날짜', `<input class="in" name="event_date" type="date" required min="${minD}" max="${o.end_date}">`, `${fmtDate(minD)} ~ ${fmtDate(o.end_date)} 사이에서 골라 주세요. 시간대: ${esc(o.time_slot || '협의')}`)}
-        ${field('대표자 연락처', `<input class="in" name="contact" type="tel" required value="${esc(S.me.phone)}">`)}
+        ${field('대표자 연락처', phoneInput('contact', S.me.phone, true, 'required'), '휴대폰 번호 (010-0000-0000)')}
         ${field('사장님께 한마디 (선택)', '<textarea class="in" name="message" placeholder="도착 시간, 추가 인원 가능성, 필요한 것 등"></textarea>')}
         <div class="notice small">사장님이 수락하면 <b>예약금 ${won(o.deposit)}</b> 입금 안내가 와요. 입금이 확인되면 예약이 확정돼요.</div>
       </form>`,
@@ -672,9 +827,9 @@ SCR.me = async () => ({
   body: `<div class="card row">${logo(46)}<div><div class="b">${esc(S.me.name)}</div><div class="small muted">${S.me.role === 'admin' ? '운영진' : esc(S.me.org)}</div></div></div>
     <div class="sec">내 정보</div>
     <form data-form="profile" class="card">
-      ${field('이름', `<input class="in" name="name" required value="${esc(S.me.name)}">`)}
+      ${field('이름', `<input class="in" name="name" required maxlength="20" value="${esc(S.me.name)}">`)}
       ${S.me.role === 'student' ? field('소속 (과·동아리)', `<input class="in" name="org" value="${esc(S.me.org)}">`) : ''}
-      ${field('전화번호', `<input class="in" name="phone" type="tel" value="${esc(S.me.phone)}">`)}
+      ${field('휴대폰 번호', phoneInput('phone', S.me.phone, true, S.me.role === 'student' ? 'required' : ''))}
       <button class="btn sec2">저장</button>
     </form>
     <div class="sec">이용 안내</div>
@@ -685,7 +840,7 @@ SCR.me = async () => ({
       <div class="mt4">• 가게 입장 시 신분증 확인이 있을 수 있어요. 만 19세 미만은 이용할 수 없어요.</div>
     </div>
     ${DEMO ? '<button class="btn ghost mt8" data-act="demoReset">데모 데이터 초기화</button>' : ''}
-    <button class="btn ghost mt8" data-act="logout">로그아웃</button>`,
+    <button class="btn ghost mt8" data-act="logout">로그아웃</button><div class="mt12">${termsLinks()}</div>`,
 });
 
 /* ----- 사장님: 받은 지원 ----- */
@@ -793,25 +948,30 @@ SCR.reqboard = async () => {
 /* ----- 사장님: 가게 ----- */
 SCR.store = async () => {
   const bank = await getBank();
+  const acc = parseAccount(bank);
   const rv = await DB.select('reviews', { owner_id:S.uid });
   const avg = rv.length ? rv.reduce((a, r) => a + r.rating, 0) / rv.length : 0;
   return {
     title: '가게',
     body: `<div class="card row">${logo(46)}<div><div class="b">${esc(S.me.store_name)}</div><div class="small muted">${rv.length ? stars(avg) + ` · 후기 ${rv.length}개` : '아직 후기가 없어요'}</div></div></div>
       <div class="sec">예약금 받을 계좌</div>
-      <form data-form="bank" class="card">${field('은행 · 계좌번호 · 예금주', `<input class="in" name="bank_account" required value="${esc(bank)}" placeholder="예: 국민 000000-00-000000 (홍길동)">`, '지원을 수락한 학생에게만 보여요.')}<button class="btn sec2">계좌 저장</button></form>
+      <form data-form="bank" class="card">
+        ${field('은행', `<select class="in" name="bank" required><option value="">은행 선택</option>${[...new Set([acc.bank, ...BANKS].filter(Boolean))].map(b => `<option ${b === acc.bank ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>`)}
+        ${field('계좌번호', `<input class="in" name="acc_no" required inputmode="numeric" data-fmt="account" maxlength="20" value="${esc(acc.no)}" placeholder="숫자와 - 만 입력">`)}
+        ${field('예금주', `<input class="in" name="holder" required maxlength="20" value="${esc(acc.holder)}" placeholder="통장에 적힌 이름">`, '지원을 수락하거나 조건을 제안한 학생에게만 보여요.')}
+        <button class="btn sec2">계좌 저장</button></form>
       <div class="sec">가게 정보</div>
       <form data-form="storeInfo" class="card">
         ${field('가게 이름', `<input class="in" name="store_name" required value="${esc(S.me.store_name)}">`)}
         ${field('주소', `<input class="in" name="store_address" value="${esc(S.me.store_address)}">`)}
-        ${field('가게 전화번호', `<input class="in" name="phone" type="tel" value="${esc(S.me.phone)}">`)}
+        ${field('가게 전화번호', phoneInput('phone', S.me.phone, false, 'required'))}
         ${field('소개 (최대 수용 인원, 룸, 단체석 등)', `<textarea class="in" name="store_desc">${esc(S.me.store_desc)}</textarea>`)}
         ${field('대표자 이름', `<input class="in" name="name" value="${esc(S.me.name)}">`)}
         <button class="btn sec2">저장</button>
       </form>
       ${rv.length ? `<div class="sec">받은 후기</div>${rv.map(r => `<div class="card"><div class="row between"><span class="stars">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</span><span class="xs muted">${ago(r.created_at)}</span></div><div class="small mt4">${esc(r.comment || '')}</div></div>`).join('')}` : ''}
       ${DEMO ? '<button class="btn ghost mt8" data-act="demoReset">데모 데이터 초기화</button>' : ''}
-      <button class="btn ghost mt8" data-act="logout">로그아웃</button>`,
+      <button class="btn ghost mt8" data-act="logout">로그아웃</button><div class="mt12">${termsLinks()}</div>`,
   };
 };
 async function getBank(){ const r = (await DB.select('owner_private', { owner_id:S.uid }))[0]; return r?.bank_account || ''; }
@@ -865,6 +1025,9 @@ const ACT = {
   demoReset: async () => { if(!(await ask('데모 데이터를 처음 상태로 되돌릴까요?', '초기화', true))) return; MEM = seed(); persist(); S.uid = null; S.me = null; S.stack = []; render(true); },
   logout: async () => { await DB.signOut(); S.uid = null; S.me = null; S.stack = []; S.tab = null; S.authView = 'login'; render(true); },
 
+  terms: d => openTerms(d.k),
+  closeSheet: () => closeSheet(),
+  agreeTerm: d => { const c = CONSENTS.find(x => x.doc === d.k); const el = c && document.getElementById('agree_' + c.k); if(el){ el.checked = true; syncAgreeAll(); } closeSheet(); },
   ftag: d => { S.f.tag = d.k; render(); },
   fdateClear: () => { S.f.date = ''; render(); },
   openOffer: d => push('offer', { id:d.id }),
@@ -942,17 +1105,26 @@ const ACT = {
    폼 제출
    ========================================================= */
 const FORM = {
-  async login(fd){ await DB.signIn(fd.get('email'), fd.get('password')); await afterLogin(); },
+  async login(fd){ const email = cleanEmail(fd.get('email')); vEmail(email); await DB.signIn(email, fd.get('password')); await afterLogin(); },
   async signup(fd){
     const role = S.signupRole;
-    const meta = { role, name:fd.get('name'), phone:fd.get('phone'), org:fd.get('org') || '', store_name:fd.get('store_name') || '', store_address:fd.get('store_address') || '' };
-    const r = await DB.signUp(fd.get('email'), fd.get('password'), meta);
+    const email = cleanEmail(fd.get('email'));
+    vText(fd.get('name'), '이름은 2~20자로 입력해 주세요');
+    if(role === 'owner'){ vText(fd.get('store_name'), '가게 이름은 2~30자로 입력해 주세요', 2, 30); vText(fd.get('store_address'), '가게 주소를 입력해 주세요', 5, 80); vPhone(fd.get('phone')); }
+    else { vText(fd.get('org'), '소속은 2~30자로 입력해 주세요', 2, 30); vMobile(fd.get('phone')); }
+    vEmail(email);
+    need(String(fd.get('password') || '').length >= 6, '비밀번호는 6자 이상이어야 해요');
+    const missing = CONSENTS.filter(c => !fd.get('agree_' + c.k));
+    need(!missing.length, `필수 항목에 동의해 주세요: ${missing.map(c => c.label).join(', ')}`);
+    const meta = { role, name:fd.get('name').trim(), phone:fd.get('phone'), org:(fd.get('org') || '').trim(), store_name:(fd.get('store_name') || '').trim(), store_address:(fd.get('store_address') || '').trim(), terms_version:TERMS_VERSION, agreed_at:new Date().toISOString() };
+    const r = await DB.signUp(email, fd.get('password'), meta);
     if(r.needsConfirm){ S.authView = 'login'; S.notice = '가입 확인 메일을 보냈어요. 메일의 링크를 누른 뒤 로그인해 주세요.'; render(true); return; }
     await afterLogin(); toast(role === 'owner' ? '가입 완료! 운영진 확인 후 승인돼요' : '가입을 환영해요!');
   },
   async apply(fd, f){
     const o = (await DB.select('offers', { id:f.dataset.id }))[0];
     const people = num(fd.get('people')), date = fd.get('event_date');
+    vText(fd.get('org'), '소속은 2~30자로 입력해 주세요', 2, 30); vMobile(fd.get('contact'));
     if(people < o.min_people || people > o.max_people) throw new Error(`인원은 ${o.min_people}~${o.max_people}명 사이로 적어 주세요`);
     if(date < o.start_date || date > o.end_date || date < today()) throw new Error('예약 가능 기간 안의 날짜를 골라 주세요');
     await DB.insert('applications', { offer_id:o.id, proposal_id:null, owner_id:o.owner_id, student_id:S.uid, store_name:o.store_name, title:o.title, org:fd.get('org'), people, event_date:date, contact:fd.get('contact'), message:fd.get('message') || '', deposit:o.deposit, deposit_account:'', status:'pending' });
@@ -970,7 +1142,9 @@ const FORM = {
     closeSheet(); toast('후기 고마워요!'); render();
   },
   async profile(fd){
-    const patch = { name:fd.get('name'), phone:fd.get('phone') || '' };
+    vText(fd.get('name'), '이름은 2~20자로 입력해 주세요');
+    if(fd.get('phone') || S.me.role === 'student') vMobile(fd.get('phone'));
+    const patch = { name:fd.get('name').trim(), phone:fd.get('phone') || '' };
     if(S.me.role === 'student') patch.org = fd.get('org') || '';
     S.me = await DB.update('profiles', S.uid, patch); toast('저장했어요'); render();
   },
@@ -992,9 +1166,13 @@ const FORM = {
     await DB.insert('proposals', { request_id:f.dataset.id, owner_id:S.uid, store_name:S.me.store_name, conditions:fd.get('conditions'), price_per_person:num(fd.get('price_per_person')), deposit:num(fd.get('deposit')) || 0, deposit_account:bank, message:fd.get('message') || '', status:'pending' });
     closeSheet(); toast('제안을 보냈어요'); render();
   },
-  async bank(fd){ await DB.upsert('owner_private', { owner_id:S.uid, bank_account:fd.get('bank_account') }); toast('계좌를 저장했어요'); },
+  async bank(fd){
+    need(fd.get('bank'), '은행을 골라 주세요'); vAccount(fd.get('acc_no')); vText(fd.get('holder'), '예금주 이름을 2~20자로 입력해 주세요');
+    await DB.upsert('owner_private', { owner_id:S.uid, bank_account:`${fd.get('bank')} ${fd.get('acc_no')} (${fd.get('holder').trim()})` }); toast('계좌를 저장했어요');
+  },
   async storeInfo(fd){
-    const name = fd.get('store_name');
+    const name = (fd.get('store_name') || '').trim();
+    vText(name, '가게 이름은 2~30자로 입력해 주세요', 2, 30); vPhone(fd.get('phone'));
     const changed = name !== S.me.store_name;
     S.me = await DB.update('profiles', S.uid, { store_name:name, store_address:fd.get('store_address') || '', phone:fd.get('phone') || '', store_desc:fd.get('store_desc') || '', name:fd.get('name') || S.me.name });
     if(changed){ const mine = await DB.select('offers', { owner_id:S.uid }); for(const o of mine) await DB.update('offers', o.id, { store_name:name }); }
@@ -1029,7 +1207,15 @@ document.addEventListener('submit', async e => {
   catch(err){ console.error(err); toast(err.message || '오류가 발생했어요'); }
   finally{ btns.forEach(b => { if(b.isConnected) b.disabled = false; }); }
 });
+function syncAgreeAll(){ const all = [...document.querySelectorAll('.agree')]; const a = document.getElementById('agreeAll'); if(a) a.checked = all.length > 0 && all.every(x => x.checked); }
+document.addEventListener('input', e => {
+  const el = e.target, f = el.dataset && el.dataset.fmt; if(!f) return;
+  const v = f === 'phone' ? fmtPhone(el.value) : f === 'account' ? fmtAccount(el.value) : f === 'email' ? el.value.replace(/\s/g, '') : el.value;
+  if(v !== el.value) el.value = v;
+});
 document.addEventListener('change', e => {
+  if(e.target.id === 'agreeAll'){ document.querySelectorAll('.agree').forEach(x => x.checked = e.target.checked); return; }
+  if(e.target.classList && e.target.classList.contains('agree')){ syncAgreeAll(); return; }
   if(e.target.id === 'fdate'){ S.f.date = e.target.value; render(); }
 });
 
